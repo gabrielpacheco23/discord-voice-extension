@@ -1,0 +1,9 @@
+.dart_tool/
+audios/
+logo.png
+max_test.dart
+.packages
+pubspec.lock
+bots/gangbot/gangbot.dart
+
+my_instants/
