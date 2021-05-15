@@ -1,5 +1,6 @@
 .dart_tool/
-audios/
+audios/b*
+audios/f*
 logo.png
 max_test.dart
 .packages
