@@ -5,6 +5,9 @@ import 'dart:math' as math;
 
 import 'package:nyxx/nyxx.dart';
 
+import 'audio_player.dart';
+import '../../utils/ip_discovery.dart';
+
 class VoiceConnection {
   final VoiceState state;
   late final WebSocket _serverSocket;
@@ -21,6 +24,48 @@ class VoiceConnection {
   }) async {
     final ws = await WebSocket.connect('wss://$endpoint?v=4');
     return VoiceConnection._(state, ws);
+  }
+
+  Future<AudioPlayer?> getPlayer() async {
+    var address = InternetAddress(udpProps['d']['ip'] as String);
+    var port = udpProps['d']['port'] as int;
+    var ssrc = udpProps['d']['ssrc'] as int;
+
+    // IP discovery to get actual external IP address using Discord Protocol
+    final ipInfo = await ipDiscovery(
+      address: address,
+      port: port,
+      ssrc: ssrc,
+    );
+
+    if (ipInfo == null || ipInfo.address == null) {
+      print('Error retrieving external IP and port.');
+      return null;
+    }
+
+    var encMode = EncryptionMode.xSalsa20Poly1305;
+    selectProtocol(
+      Protocol.udp,
+      ipInfo.address!,
+      ipInfo.port,
+      encryptionMode: encMode,
+    );
+
+    var sessionDescription = json.decode(await voiceStream.first as String);
+
+    // we need this to encrypt the audio data
+    var secretKey = (sessionDescription['d']['secret_key'] as List).cast<int>();
+
+    // the actual player
+    return await AudioPlayer.init(
+      key: secretKey,
+      connection: this,
+      ssrc: ssrc,
+      encryptionMode: encMode,
+      remoteAddress: address,
+      remotePort: port,
+      localPort: ipInfo.port,
+    );
   }
 
   void identify(String serverId, String userId, String token) {
@@ -57,7 +102,7 @@ class VoiceConnection {
   }
 
   void selectProtocol(
-    String protocol,
+    Protocol protocol,
     InternetAddress externalIp,
     int port, {
     EncryptionMode encryptionMode = EncryptionMode.xSalsa20Poly1305,
@@ -65,7 +110,7 @@ class VoiceConnection {
     final udpConnPayload = {
       'op': 1,
       'd': {
-        'protocol': protocol,
+        'protocol': _protocolToString(protocol),
         'data': {
           'address': externalIp.address,
           'port': port,
@@ -111,7 +156,20 @@ class VoiceConnection {
         throw Error(); // unreachable
     }
   }
+
+  String _protocolToString(Protocol proto) {
+    switch (proto) {
+      case Protocol.udp:
+        return 'udp';
+      case Protocol.tcp:
+        return 'tcp';
+      default:
+        throw UnimplementedError();
+    }
+  }
 }
+
+enum Protocol { udp, tcp }
 
 enum EncryptionMode {
   aeadAesGcm,

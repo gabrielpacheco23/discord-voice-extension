@@ -11,16 +11,32 @@ class VoicePacket {
   static const _rtpHeaderSize = 12;
   static const _nonceSize = 24;
   // static int seq = math.Random().nextInt((1 << 16) - 1);
-  static int seq = 0;
+  static late int seq;
+  static late int timestamp;
+
+  static void resetMetadata() {
+    seq = -1;
+    timestamp = -1;
+  }
+
+  static void incrementMetadata() {
+    seq += 1;
+    timestamp = seq * 960;
+
+    if (seq >= 65535) {
+      seq = 0;
+    }
+    if (timestamp >= 4294967295) {
+      timestamp = 0;
+    }
+  }
 
   static Uint8List generateNonce(int ssrc) {
-    seq = seq + 1;
-
     var nonce = ByteData(_nonceSize);
     nonce.setUint8(0, 0x80);
     nonce.setUint8(1, 0x78);
     nonce.setUint16(2, seq);
-    nonce.setUint32(4, 960); //      see *timestamp*
+    nonce.setUint32(4, timestamp); //      see *timestamp*
     nonce.setUint32(8, ssrc);
     for (var i = 0; i < _rtpHeaderSize; i++) {
       nonce.setUint8(12 + i, 0);
@@ -49,7 +65,6 @@ class VoicePacket {
 
   VoicePacket(this.audioBytes, {required this.ssrc}) {
     data = ByteData(audioBytes.length + _rtpHeaderSize);
-    // seq = seq + 1;
     final header = ByteData.sublistView(data, 0, _rtpHeaderSize);
     final encAudio =
         ByteData.sublistView(data, _rtpHeaderSize, data.lengthInBytes);
@@ -57,7 +72,7 @@ class VoicePacket {
     header.setUint8(0, 0x80);
     header.setUint8(1, 0x78);
     header.setUint16(2, seq);
-    header.setUint32(4, seq * 960); //   see *timestamp*
+    header.setUint32(4, timestamp); //   see *timestamp*
     header.setUint32(8, ssrc);
     // for (var i = 0; i < audioBytes.length; i++) {
     for (var i = 0; i < encAudio.lengthInBytes; i++) {

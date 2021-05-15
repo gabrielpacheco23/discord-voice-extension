@@ -25,9 +25,9 @@ void main() async {
         // joins channel
         player = await (channel as VoiceGuildChannel).join();
         // plays audio
-        await player?.play(audioPath);
+        await player?.playFFmpeg(audioPath);
       } else {
-        await player?.play(audioPath);
+        await player?.playFFmpeg(audioPath);
       }
     }
   });

@@ -24,11 +24,12 @@ abstract class Encryption {
   });
 }
 
-// this encryption works fine with Discord
 class _SodiumSecretBox implements Encryption {
   late final Sodium sodium;
   _SodiumSecretBox();
 
+  // change to your OS libsodium path
+  // (assuming you installed via https://libsodium.gitbook.io/doc/installation)
   final libsodium = DynamicLibrary.open('/usr/local/lib/libsodium.so');
 
   @override

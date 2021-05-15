@@ -1,12 +1,12 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import '../gangbot/ffmpeg/ffmpeg.dart';
 import 'silence_packet.dart';
 import 'voice_connection.dart';
 import '../../utils/encryption.dart';
 import 'voice_packet.dart';
 
-// holds information about UDP connection
 // maybe will change the name of this class later to better fit its purpose
 class AudioPlayer {
   final List<int> key;
@@ -15,79 +15,126 @@ class AudioPlayer {
   final EncryptionMode encryptionMode;
 
   final RawDatagramSocket udpSocket;
-  final InternetAddress udpAddress;
-  final int udpPort;
+  final InternetAddress remoteAddress;
+  final int remotePort, localPort;
   final int ssrc;
 
   final dirPath = '/home/gabriel/Documents/dartprojs/gdp/audios/';
+
+  var stopped = false;
 
   AudioPlayer._({
     required this.key,
     required this.connection,
     required this.secretBox,
+    required this.remoteAddress,
+    required this.remotePort,
+    required this.localPort,
     required this.udpSocket,
-    required this.udpAddress,
-    required this.udpPort,
     required this.ssrc,
     required this.encryptionMode,
   });
 
   static Future<AudioPlayer> init({
-    required InternetAddress udpAddress,
-    required int udpPort,
+    required InternetAddress remoteAddress,
+    required int remotePort,
+    required int localPort,
     required List<int> key,
     required VoiceConnection connection,
     required int ssrc,
     EncryptionMode encryptionMode = EncryptionMode.xSalsa20Poly1305,
   }) async {
-    final enc = _getEncryption(encryptionMode);
-    final encryption = await enc.init();
+    final encryption = _getEncryption(encryptionMode);
+    final secretBox = await encryption.init();
 
     final udpSock =
-        await RawDatagramSocket.bind(InternetAddress.anyIPv4, udpPort);
-
+        await RawDatagramSocket.bind(InternetAddress.anyIPv4, localPort);
     return AudioPlayer._(
       key: key,
       connection: connection,
-      secretBox: encryption,
+      secretBox: secretBox,
       encryptionMode: encryptionMode,
       udpSocket: udpSock,
-      udpAddress: udpAddress,
-      udpPort: udpPort,
+      remoteAddress: remoteAddress,
+      localPort: localPort,
+      remotePort: remotePort,
       ssrc: ssrc,
     );
   }
 
+  Future<void> playFFmpeg(String path) async {
+    connection.speaking(5, ssrc);
+    await play(path);
+    connection.stopSpeaking(ssrc);
+  }
+
   Future<void> play(String path) async {
+    const silence = SilencePacket();
+    const silenceFrames = 5;
     try {
-      // I dont know if we need to send silence packets when connected
-      // const silence = SilencePacket();
-      // udpSocket.send(silence.buffer, udpAddress, udpPort);
+      VoicePacket.resetMetadata();
+      var audioPath = '$dirPath$path.mp3';
 
-      var audioPath = '$dirPath$path.ogg';
-      var audioBytes = File(audioPath).readAsBytesSync();
+      var playing = true;
 
-      var nonce = VoicePacket.generateNonce(ssrc);
-      var secretKey = Uint8List.fromList(key);
+      // control chunk size
+      var chunkSize = 960;
 
-      // encrypts using libsodium wrapper for Dart
-      var encAudio = secretBox.encrypt(
-        message: audioBytes,
-        nonce: nonce,
-        key: secretKey,
-      );
+      var audioStream = Ffmpeg.chunkedStdout(audioPath, chunkSize);
+      await for (var chunk in audioStream) {
+        // this may be wrong
+        if (chunk[0] == 0) {
+          connection.stopSpeaking(ssrc);
+          for (var i = 0; i < silenceFrames; i++) {
+            udpSocket.send(silence.buffer, remoteAddress, remotePort);
+          }
+          continue;
+        }
 
-      // voice packet with Real-time Transport Protocol header
-      // and encrypted audio bytes
-      final voicePacket = VoicePacket(encAudio, ssrc: ssrc);
+        if (stopped) {
+          break;
+        }
 
-      // sets speaking to true with voice priority
-      connection.speaking(5, ssrc);
+        VoicePacket.incrementMetadata();
 
-      // send the voice packet to connection UDP server
-      udpSocket.send(voicePacket.buffer, udpAddress, udpPort);
-    } catch (e) {
+        var nonce = VoicePacket.generateNonce(ssrc);
+        var secretKey = Uint8List.fromList(key);
+
+        var encAudio = secretBox.encrypt(
+          message: chunk,
+          nonce: nonce,
+          key: secretKey,
+        );
+
+        final voicePacket = VoicePacket(encAudio, ssrc: ssrc);
+        // print(voicePacket.buffer);
+
+        connection.speaking(5, ssrc);
+        udpSocket.send(voicePacket.buffer, remoteAddress, remotePort);
+        await Future.delayed(const Duration(milliseconds: 20));
+      }
+
+      // var audioPath = '$dirPath$path.ogg';
+      // var audioBytes = File(audioPath).readAsBytesSync();
+
+      // var nonce = VoicePacket.generateNonce(ssrc);
+      // var secretKey = Uint8List.fromList(key);
+
+      // var encAudio = secretBox.encrypt(
+      //   message: audioBytes,
+      //   nonce: nonce,
+      //   key: secretKey,
+      // );
+
+      // final voicePacket = VoicePacket(encAudio, ssrc: ssrc);
+      // print(voicePacket.buffer);
+
+      // connection.speaking(5, ssrc);
+
+      // udpSocket.send(voicePacket.buffer, remoteAddress, remotePort);
+    } catch (e, st) {
       // TODO: handle error
+      print('$e: $st');
     } finally {
       udpSocket.close();
     }

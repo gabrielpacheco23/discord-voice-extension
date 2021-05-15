@@ -2,8 +2,13 @@ name: gdp
 dependencies:
   sodium: ^0.1.1
   dio: ^4.0.0
-  nyxx: 
-    path: /home/gabriel/Documents/dartprojs/nyxx/nyxx
+  # nyxx_interactions: ^2.0.0-rc.5
+  nyxx: ^2.0.0-rc.4
+  
+  # nyxx: 
+  #   path: /home/gabriel/Documents/dartprojs/nyxx/nyxx
+  chunked_stream: ^1.4.1
+  async: ^2.6.1
 
     
 environment:
